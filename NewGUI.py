@@ -8,11 +8,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLa
 class VideoEditor(QMainWindow):
     def __init__(self):
         super().__init__()
-        print("Initializing VideoEditor")
-
-        # Initialize cap with None
         self.cap = None
-        print("self.cap initialized as None")
 
         self.initUI()
 
@@ -73,6 +69,25 @@ class VideoEditor(QMainWindow):
         self.saturation_slider.setRange(0, 100)
         self.saturation_slider.setValue(50)
 
+        # Enable drag and drop for the main widget
+        self.central_widget.setAcceptDrops(True)
+    
+    # Override dragEnterEvent
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    # Override dropEvent
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        if urls and len(urls) > 0:
+            # Take the first URL (if multiple files are dropped, only the first one is considered)
+            file_path = urls[0].toLocalFile()
+            if file_path.lower().endswith('.avi'):
+                self.load_video(file_path)
+            else:
+                print("The file is not an AVI video.")
+
 
     def on_brightness_change(self, value):
         self.brightness_value = value
@@ -113,19 +128,22 @@ class VideoEditor(QMainWindow):
         return frame
 
 
-    def load_video(self):
+    def load_video(self, file_path=None):
         # Release existing video capture if it exists
         if self.cap is not None:
             self.cap.release()
             self.cap = None
 
-        self.video_path, _ = QFileDialog.getOpenFileName(self, "Open Video", "", "Video Files (*.mp4 *.avi *.mov)")
+        if not file_path:
+            self.video_path, _ = QFileDialog.getOpenFileName(self, "Open Video", "", "Video Files (*.avi)")
+        else:
+            self.video_path = file_path
+
         if self.video_path:
             self.cap = cv2.VideoCapture(self.video_path)
             self.timer.start(30)
 
     def update_frame(self):
-        print("update_frame called")
         if self.cap is None:
             print("self.cap is None")
         elif not self.cap.isOpened():
