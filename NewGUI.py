@@ -17,6 +17,9 @@ class VideoEditor(QMainWindow):
         self.timer.timeout.connect(self.update_frame)
         self.current_frame = None  # Store the current frame
 
+        # Enable drag and drop for the main window
+        self.setAcceptDrops(True)
+
         # Variables to store adjustment values
         self.brightness_value = 50
         self.contrast_value = 50
@@ -26,6 +29,9 @@ class VideoEditor(QMainWindow):
         # Main Widget
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
+
+        # Enable drag and drop for the central widget
+        self.central_widget.setAcceptDrops(True)
 
         # Layout
         self.layout = QVBoxLayout(self.central_widget)
@@ -72,21 +78,26 @@ class VideoEditor(QMainWindow):
         # Enable drag and drop for the main widget
         self.central_widget.setAcceptDrops(True)
     
-    # Override dragEnterEvent
     def dragEnterEvent(self, event):
+        print("Drag event triggered")  # Debug print
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
 
     # Override dropEvent
     def dropEvent(self, event):
-        urls = event.mimeData().urls()
-        if urls and len(urls) > 0:
-            # Take the first URL (if multiple files are dropped, only the first one is considered)
-            file_path = urls[0].toLocalFile()
+        print("Drop event triggered")  # Debug print
+        if event.mimeData().hasUrls():
+            url = event.mimeData().urls()[0]
+            file_path = url.toLocalFile()
+            print(f"Dropped file path: {file_path}")  # Debug print
+
             if file_path.lower().endswith('.avi'):
+                print("Loading AVI video...")  # Debug print
                 self.load_video(file_path)
             else:
-                print("The file is not an AVI video.")
+                print("The file is not an AVI video.")  # Debug print
+        event.acceptProposedAction()
+
 
 
     def on_brightness_change(self, value):
