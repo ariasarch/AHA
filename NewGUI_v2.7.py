@@ -97,7 +97,7 @@ class VideoPlayer(QWidget):
         slider_layout.addWidget(self.saturation_slider)
 
         # Adds nested layouts
-        outerLayout.addLayout(Vid_lab_layout)
+        # outerLayout.addLayout(Vid_lab_layout)
         outerLayout.addLayout(Vid_layout)
         outerLayout.addLayout(Toplayout)
         outerLayout.addLayout(slider_layout)
