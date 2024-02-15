@@ -1,55 +1,92 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QPushButton, QFileDialog
-from PyQt5.QtGui import QPixmap, QImage
+from PyQt5 import QtCore, QtGui, QtWidgets
+import numpy as np
 import cv2
+from matplotlib.figure import Figure
+from matplotlib.animation import TimedAnimation
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+import time
+import threading
+import matplotlib
+matplotlib.use("Qt5Agg")
 
-class VideoPlayer(QWidget):
-    def __init__(self):
-        super().__init__()
+import xarray as xr
 
-        self.layout = QVBoxLayout()
-        self.label = QLabel(self)
-        self.layout.addWidget(self.label)
+video_path = 'c:\\Users\\heather\\Desktop\\GUI\\Sample_avi_clip.avi'
+cap = cv2.VideoCapture(video_path)
 
-        self.select_button = QPushButton('Select AVI File', self)
-        self.select_button.clicked.connect(self.open_avi_file)
-        self.layout.addWidget(self.select_button)
+# Get video metadata
+fps = cap.get(cv2.CAP_PROP_FPS)
+frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+num_channels = 3  # Assuming RGB video, change if necessary
 
-        self.setLayout(self.layout)
 
-    def open_avi_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, 'Open AVI File', '', 'AVI files (*.avi)')
-        if file_path:
-            self.play_video(file_path)
+data_fr=np.empty((frame_count, frame_height, frame_width, num_channels))
 
-    def play_video(self, file_path):
-        cap = cv2.VideoCapture(file_path)
+# Create an empty xarray with dimensions time, y, x, and channel
+xarr = xr.DataArray(data_fr,
+                    dims=['time', 'y', 'x', 'channel'],
+                    coords={'time': np.arange(frame_count) / fps})
 
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
+# Convert each frame to xarray
+for i in range(frame_count):
+    ret, frame = cap.read()
+    if not ret:
+        break
 
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            h, w, ch = rgb_frame.shape
+    # OpenCV captures the frame in BGR format, so we convert it to RGB
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            # Scale the frame to fit in the label widget
-            max_size = max(h, w)
-            if max_size > 800:
-                scale_factor = 800 / max_size
-                rgb_frame = cv2.resize(rgb_frame, (int(w * scale_factor), int(h * scale_factor)))
+    xarr[i] = frame_rgb
 
-            # Convert the frame to QPixmap and set it as the label's pixmap
-            qimg = QPixmap.fromImage(QImage(rgb_frame.data, w, h, QImage.Format_RGB888))
-            self.label.setPixmap(qimg)
 
-            # Display the frame for 30 milliseconds
-            cv2.waitKey(30)  
 
-        cap.release()
+# Release the video capture and close the video file
+cap.release()
 
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
+class VideoPlayer(QtWidgets.QMainWindow):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.setWindowTitle("Video Player")
+        self.setGeometry(100, 100, 800, 600)
+
+        # Create a Matplotlib Figure and Canvas
+        self.fig = Figure(figsize=(6, 6))
+        self.canvas = FigureCanvas(self.fig)
+        self.setCentralWidget(self.canvas)
+
+        # Create the subplot for the video display
+        self.ax = self.fig.add_subplot(111)
+
+        # Set up animation timer
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.update_frame)
+
+        # Keep track of the current frame
+        self.current_frame = 0
+
+    def play(self):
+        self.timer.start(100)  # Set the timer interval (milliseconds)
+    
+    def stop(self):
+        self.timer.stop()
+
+    def update_frame(self):
+        self.current_frame = (self.current_frame + 1) % len(xarr.time)
+
+        # Get the current frame data
+        frame = xarr[self.current_frame].values
+
+        # Display the frame using imshow
+        self.ax.imshow(frame)
+        self.canvas.draw()
+
+if __name__ == "__main__":
+    app = QtWidgets.QApplication(sys.argv)
     player = VideoPlayer()
     player.show()
+    player.play()
     sys.exit(app.exec_())
