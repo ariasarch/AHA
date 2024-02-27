@@ -9,9 +9,10 @@ from xarray.core.dataarray import DataArray
 import numpy as np
 import video_processing as vp
 
+sys.setrecursionlimit(10**6)
+
 class Threading(QThread):
     updateFrame = Signal(QImage)
-    
 
     def __init__(self, parent=None):
 
@@ -24,9 +25,11 @@ class Threading(QThread):
         self.button_index= 0 
         self.slider_value = None
         self.current_function_index = 0
-        self.functions = [self.get_chunk, self.denoise]
+        self.limit=10**6
+        self.init_slider_val=5
 
     def run(self):
+        sys.setrecursionlimit(self.limit)
         if self.video_path:
             self.load_avi_perframe(self.video_path)
             self.frame_array_2_xarray()
@@ -64,7 +67,7 @@ class Threading(QThread):
         self.get_chunk()
 
     def get_video(self): # This function is responsible for calling video loop and temporarily applying adjustments
-        self.slider_value=0
+        self.slider_value=5
         self.stop_thread = False
         time_frame=1 / self.frame_rate
         if self.data_array is not None:
@@ -72,11 +75,11 @@ class Threading(QThread):
                 for i in range( self.frame_index,len(self.data_array)):  # Start from frame_index
                     if not self.stop_thread:
                         img = self.data_array[i].values # gets frame i
-                        if self.slider_value!=0: #checks to see if slider has been adjusted
+                        if self.slider_value!=self.init_slider_val: #checks to see if slider has been adjusted
                                 self.prev_slider_value=self.slider_value
                                 img = self.data_array[i].values
-                                self.frame=img
-                                img = self.current_function()
+                                frame=img
+                                img = self.current_function(frame)
                         img = np.uint8(img) # converts frame to image from pixels
                         height, width = img.shape
                         q_img = QImage(img, width, height, width, QImage.Format_Grayscale8) # passes image to QImage for display
@@ -84,22 +87,21 @@ class Threading(QThread):
                         time.sleep(time_frame)
                         self.frame_index = i  # Update frame index
                     else: # Ensures adjustments will continue to be seen when paused
-                        self.prev_slider_value= 0
+                        self.prev_slider_value= self.init_slider_val
                         while self.stop_thread:
                             if self.slider_value!=self.prev_slider_value: #checks to see if brightness has been adjusted
                                 self.prev_slider_value=self.slider_value
                                 img = self.data_array[i].values
-                                self.frame=img
-                                img = self.current_function()
+                                frame=img
+                                img = self.current_function(frame)
                                 img = np.uint8(img) # converts frame to image from pixels
                                 height, width = img.shape
                                 q_img = QImage(img, width, height, width, QImage.Format_Grayscale8) # passes image to QImage for display
                                 self.updateFrame.emit(q_img)
-                                time.sleep(time_frame)                             
+                                time.sleep(time_frame)                            
 
     def update_button_indx(self, button_index):
         self.current_function_index= button_index
-        self.current_function = self.functions[self.current_function_index]
 
     def temp_mod_frame(self, value): # takes value from on_brightness_change and adjusts brightness factor
         # call function based on passed value
@@ -137,21 +139,35 @@ class Threading(QThread):
         # Note: currently have no idea why we are calling this function, but may be important later
 
     def denoise(self,frame):
-        self.kernal_size=self.slider_value
+        self.kernel_size=self.slider_value
         vp.denoise(frame, method='gaussian', kernel_size=self.kernel_size)
+    
+    def remove_background(self,frame):
+        self.kernel_size=self.slider_value
+        vp.remove_background(frame, method="uniform", kernel_size=self.kernel_size)
+
 
 ### will add further functions from ui handlers here and then add them to the current_function array
-
     def current_function(self, frame):
-        return self.current_function(frame)
+        if self.current_function_index == 1:
+            return self.denoise(frame)
+        elif self.current_function_index == 2:
+            return self.remove_background(frame)
+        else:
+            return frame
+
 
 class MainWindow(QDialog):
     def __init__(self):
         super().__init__()
-        self.Button_name=['Get optimal chunk', 'Denoise', 'Other'] # Names of sliders
-        self.Min_slider=[0, 1,0] # Minimum value for slider
-        self.Max_slider=[1,10,1]
-        self.init_slider=[0,5,0] # Initial values for sliders
+        self.Button_name=['Get optimal chunk', 'Denoise', 'Remove Background'] # Names of miniAM functions
+        self.slider_name=['None','Kernel size','Kernel Size']
+        self.Min_slider=[0, 1,1] # Minimum value for slider
+        self.Max_slider=[1,10,10]
+        self.init_slider=[0,5,5] # Initial values for sliders
+        self.current_control = 0 
+        self.current_widget = ['chnk_widget', 'denoise_widget', 'remove_bck_widget']
+        self.current_layout= ['chnk_layout', 'denoise_layout', 'remove_bck_layout']
         
         self.setWindowTitle("xarray_player")
         self.setGeometry(0, 0, 800, 500)
@@ -167,7 +183,6 @@ class MainWindow(QDialog):
         self.button_stop.clicked.connect(self.stop_thread)
 
         # Current control set index and Next Button setup
-        self.current_control_index = 0
         self.next_btn = QPushButton("Next", self)
         self.next_btn.clicked.connect(self.next_control_set)
 
@@ -179,26 +194,64 @@ class MainWindow(QDialog):
         layout.addWidget(self.label)        
         layout.addWidget(self.upload_button)
 
-
         # Stacked Widget for switching between control sets
         self.controlStack = QStackedWidget(self)
         layout.addWidget(self.controlStack)
+
+        for i in range(len(self.current_widget)):
+            self.current_widget[i]=QWidget()
+            self.current_layout[i]=QVBoxLayout(self.current_widget[i])
+
 
         layout.addWidget(self.button1)
         layout.addWidget(self.button_stop)
         layout.addWidget(self.save_video_button)
         self.setLayout(layout)
 
-### End of miniAM insert
-    
         self.thread = Threading(self)
         self.thread.updateFrame.connect(self.displayFrame)
 
+## Initiating controls for MiniAM
+    # Next
+    def next_control_set(self):
+        self.save_changes()
+        self.current_control += 1 
+        if self.current_control >= len(self.Button_name):
+            self.current_control=len(self.Button_name) # when we finish we might replace this with a save button or something
+        self.controlStack.setCurrentIndex(self.current_control)
+        self.init_new_widget(self.current_control)
+        
+    def init_new_widget(self, cur_index):
+        if cur_index>=2:
+            self.controlStack.removeWidget(self.current_widget[cur_index-1])
+        current_layo=self.current_layout[cur_index] 
 
+
+        print(cur_index)
+        print(self.Button_name[cur_index])
+
+        self.current_function_Label = QLabel('{}'.format(self.Button_name[cur_index]), self.current_widget[cur_index])
+        current_layo.addWidget(self.current_function_Label)
+
+        self.current_label = QLabel(self.slider_name[cur_index] + ': ' + str(self.init_slider[cur_index]), self.current_widget[cur_index])
+        current_layo.addWidget(self.current_label) # Add label for displaying slider value
+
+        self.current_slider = QSlider(Qt.Horizontal, self)
+        self.current_slider.valueChanged[int].connect(self.on_slider_change)
+        self.current_slider.setMinimum(self.Min_slider[cur_index])
+        self.current_slider.setMaximum(self.Max_slider[cur_index])
+        self.current_slider.setValue(self.init_slider[cur_index])
+        current_layo.addWidget(self.current_slider)
+        self.controlStack.addWidget(self.current_widget[cur_index])
+
+    def switch_control_set(self, index):
+        self.controlStack.setCurrentIndex(index)
+
+### End of miniAM insert
 
     @ Slot()
     def update_button_index(self):
-        button_indx=self.current_control_index
+        button_indx=self.current_control
         self.thread.update_button_indx(button_indx) 
 
     @Slot()
@@ -234,72 +287,12 @@ class MainWindow(QDialog):
     def save_changes(self):
         self.thread.apply_mod_2_xarray()
 
-
-### Initiating controls for MiniAM
-    # Next
-    def next_control_set(self):
-    # Save the video first
-        self.save_changes()
-    
-    # Move to the next control set
-        self.current_control_index += 1
-        if self.current_control_index >= len(self.Button_name):
-            self.current_control_index = 0
-
-        self.init_current_controls()
-
-    # Create a new button and slider for the next control set
-        current_widget = QWidget()
-        current_layout = QVBoxLayout(current_widget)
-
-        self.current_button = QPushButton(self.Button_name[self.current_control_index], current_widget)
-        self.current_button.clicked.connect(self.current_function) 
-        current_layout.addWidget(self.current_button)
-
-        self.current_slider = QSlider(Qt.Horizontal, current_widget)
-        self.current_slider.setMinimum(self.Min_slider[self.current_control_index])
-        self.current_slider.setMaximum(self.Max_slider[self.current_control_index])
-        self.current_slider.setValue(self.init_slider[self.current_control_index])
-        current_layout.addWidget(self.current_slider)
-
-        current_widget.setLayout(current_layout)
-        self.controlStack.addWidget(current_widget)
-
-        self.controlStack.setCurrentIndex(self.current_control_index)
-    
-    # Denoise Controls
-    def init_current_controls(self):
-        current_widget= QWidget()
-        current_layout=QVBoxLayout(current_widget)
-        self.current_button = QPushButton(self.Button_name[self.current_control_index], current_widget)
-        self.current_button.clicked.connect(self.current_function) 
-        current_layout.addWidget(self.current_button)
-        self.current_slider = QSlider(Qt.Horizontal, current_widget)
-        # ... [setup the slider] ...
-        current_layout.addWidget(self.current_slider)
-        current_widget.setLayout(current_layout)
-        self.current_slider.setMinimum(self.Min_slider[self.current_control_index])
-        self.current_slider.setMaximum(self.Max_slider[self.current_control_index])
-        self.current_slider.setValue(self.init_slider[self.current_control_index])
-        self.current_button.clicked.connect(self.save_changes())
-
-    def switch_control_set(self, index):
-        self.controlStack.setCurrentIndex(index)
-
-    def current_function(self):
-        print('')
-
     @Slot()
     def on_slider_change(self):
         current_value = self.current_slider.value()
-        self.thread.temp_mod_frame(current_value)     # send brightness value to parent
-        self.current_label.setText(self.Button_name[self.current_control_index]+": {current_value}")
-        self.current_value = current_value
-
-    def add_controls(self):
-        self.current_button = QPushButton(self.Button_names[self.current_control_index], self)
-        self.current_button.clicked.connect(self) # need to create function
-        self.layout.addWidget(self.current_button)
+        self.thread.temp_mod_frame(current_value)
+        self.current_label.setText("{0}: {1}".format(self.slider_name[self.current_control], str(current_value))) 
+        # self.current_value = current_value
             
 
 if __name__ == "__main__":
