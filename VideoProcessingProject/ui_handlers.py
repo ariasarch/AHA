@@ -4,6 +4,20 @@ class VideoUIHandlers:
     def __init__(self, video_editor_ui):
         self.video_editor_ui = video_editor_ui
 
+    def handle_get_optimal_chk(self):
+        try:
+            # Assuming data_array is your xarray DataArray loaded with video data
+            if self.video_editor_ui.data_array is not None:
+                optimal_chunks, store_chunks = vp.get_optimal_chk(self.video_editor_ui.data_array)
+                print("Optimal chunks:", optimal_chunks)
+                # You might want to show these chunks in your UI or log them
+            else:
+                print("Data array is not loaded.")
+        except Exception as e:
+            print(f"Error during get_optimal_chk: {e}")
+
+
+
     def apply_denoise(self):
         if self.video_editor_ui.current_frame_index < len(self.video_editor_ui.video_frames):
             frame = self.video_editor_ui.video_frames[self.video_editor_ui.current_frame_index]

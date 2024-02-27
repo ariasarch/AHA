@@ -3,10 +3,94 @@
 import cv2
 import numpy as np
 import xarray as xr
+import dask.array as da
+from typing import Optional
 from scipy.stats import kstest
 from scipy.spatial.distance import cdist
+from dask.array import Array as DaskArray
 import networkx as nx
 from numpy.fft import fft2, fftshift
+
+def factors(n):
+    """Placeholder for a function that returns factors of n."""
+    return [factor for factor in range(1, n+1) if n % factor == 0]
+
+def get_chunksize(arr_chk: DaskArray) -> dict:
+    """
+    Compute chunk sizes from a Dask array.
+
+    Parameters:
+    - arr_chk (DaskArray): A Dask array.
+
+    Returns:
+    - dict: A dictionary mapping dimension names to chunk sizes.
+    """
+    # Ensure arr_chk is a Dask array
+    if not isinstance(arr_chk, DaskArray):
+        raise ValueError("arr_chk must be a Dask array.")
+    
+    # Mapping dimension names to chunk sizes
+    return {dim: size for dim, size in zip(arr_chk.dims, arr_chk.chunksize)}
+
+def get_optimal_chk(
+    arr: xr.DataArray,
+    dim_grp=[("frame",), ("height", "width")],
+    csize=256,
+    dtype: Optional[type] = None,
+) -> dict:
+    """
+    Compute the optimal chunk size across all dimensions of the input array.
+    
+    This function uses `dask` autochunking mechanism to determine the optimal
+    chunk size of an array. The difference between this and directly using
+    "auto" as chunksize is that it understands which dimensions are usually
+    chunked together with the help of `dim_grp`. It also support computing
+    chunks for custom `dtype` and explicit requirement of chunk size.
+    """
+    if dtype is not None:
+        arr = arr.astype(dtype)
+    dims = arr.dims
+    if not dim_grp:
+        dim_grp = [(d,) for d in dims]
+    chk_compute = dict()
+    for dg in dim_grp:
+        d_rest = set(dims) - set(dg)
+        dg_dict = {d: "auto" for d in dg}
+        dr_dict = {d: -1 for d in d_rest}
+        dg_dict.update(dr_dict)
+        with da.config.set({"array.chunk-size": "{}MiB".format(csize)}):
+            arr_chk = arr.chunk(dg_dict)
+        chk = get_chunksize(arr_chk)
+        chk_compute.update({d: chk[d] for d in dg})
+    with da.config.set({"array.chunk-size": "{}MiB".format(csize)}):
+        arr_chk = arr.chunk({d: "auto" for d in dims})
+    chk_store_da = get_chunksize(arr_chk)
+    chk_store = dict()
+    for d in dims:
+        ncomp = int(arr.sizes[d] / chk_compute[d])
+        sz = np.array(factors(ncomp)) * chk_compute[d]
+        chk_store[d] = sz[np.argmin(np.abs(sz - chk_store_da[d]))]
+    return chk_compute, chk_store_da
+
+def apply_denoise(self):
+    if self.video_editor_ui.data_array is not None:
+        denoise_method = self.video_editor_ui.denoise_method_combo.currentText()
+        denoise_param = self.video_editor_ui.denoise_param_slider.value()
+        
+        # Assume data_array contains grayscale images for simplicity
+        # Apply denoising to each frame
+        denoised_data = []
+        for frame in self.video_editor_ui.data_array:
+            denoised_frame = vp.denoise(frame, method=denoise_method, kernel_size=denoise_param)
+            denoised_data.append(denoised_frame)
+
+        # Convert the list of frames back to DataArray if needed
+        # Update the video display or data storage accordingly
+        # This is a placeholder to indicate where you might convert and display the denoised video
+        print("Denoising completed.")
+    else:
+        print("Data array is not loaded.")
+
 
 def denoise(frame, method='gaussian', kernel_size=5):
     """
