@@ -156,32 +156,76 @@ class Threading(QThread):
         self.estimate_motion(frame)
         if self.frame_index < len(self.data_array):
             vp.apply_transform(frame, self.motion_vector, border_mode=cv2.BORDER_REFLECT)
+    
 ### will add further functions from ui handlers here and then add them to the current_function array
     def current_function(self, frame):
-        if self.current_function_index==1:
+        if self.current_function_index == 1:
             return self.deglow(frame)
         elif self.current_function_index == 2:
             return self.denoise(frame)
         elif self.current_function_index == 3:
             return self.remove_background(frame)
         elif self.current_function_index == 4:
-            self.apply_transform(frame)
+            return self.apply_transform(frame)
+        elif self.current_function_index == 5:
+            self.seeds_init_wrapper()  # Assuming this updates internal state and doesn't modify the frame directly
+            return frame
+        elif self.current_function_index == 6:
+            return self.pnr_refine_wrapper(frame)
+        elif self.current_function_index == 7:
+            return self.ks_refine_wrapper(frame)
+        elif self.current_function_index == 8:
+            self.seeds_merge_wrapper()  # Again, assuming updates internal state
+            return frame
+        elif self.current_function_index == 9:
+            return self.initA_wrapper(frame)
+        elif self.current_function_index == 10:
+            return self.initC_wrapper(frame)
+        elif self.current_function_index == 11:
+            self.unit_merge_wrapper()  # Assuming updates internal state
+            return frame
+        elif self.current_function_index == 12:
+            return self.get_noise_fft_wrapper(frame)
+        elif self.current_function_index == 13:
+            return self.update_spatial_wrapper(frame)
+        elif self.current_function_index == 14:
+            return self.update_background_wrapper(frame)
+        elif self.current_function_index == 15:
+            return self.update_temporal_wrapper(frame)
+        elif self.current_function_index == 16:
+            self.generate_videos_wrapper()  # This might need special handling
+            return frame
         else:
             return frame
+
 
 
 class MainWindow(QDialog):
     def __init__(self):
         super().__init__()
-        self.Button_name=['Get optimal chunk', 'Denoise', 'Remove Background', 'Estimate Motion', 'Apply Transform'] # Names of miniAM functions
+        self.Button_name = [
+            'Get optimal chunk', 'Denoise', 'Remove Background', 'Estimate Motion', 'Apply Transform', 
+            'Seeds Init', 'PNR Refine', 'KS Refine', 'Seeds Merge', 
+            'Init A', 'Init C', 'Unit Merge', 'Get Noise FFT', 
+            'Update Spatial', 'Update Background', 'Update Temporal', 'Generate Videos'
+        ]
         self.slider_name=['None','Kernel size','Kernel Size', 'None', 'None']
         self.Min_slider=[0, 1,1,0,0] # Minimum value for slider
         self.Max_slider=[1,10,10,1,0]
         self.init_slider=[0,5,5,0,0] # Initial values for sliders
         self.current_control = 0 
-        self.current_widget = ['chnk_widget', 'denoise_widget', 'remove_bck_widget', 'est_mot_widget', 'Transform_widget']
-        self.current_layout= ['chnk_layout', 'denoise_layout', 'remove_bck_layout', 'est_mot_widget', 'Transform_layout']
-        
+        self.current_widget = [
+            'chnk_widget', 'denoise_widget', 'remove_bck_widget', 'est_mot_widget', 'Transform_widget', 
+            'seeds_init_widget', 'pnr_refine_widget', 'ks_refine_widget', 'seeds_merge_widget', 
+            'initA_widget', 'initC_widget', 'unit_merge_widget', 'get_noise_fft_widget', 
+            'update_spatial_widget', 'update_background_widget', 'update_temporal_widget', 'generate_videos_widget'
+        ]
+        self.current_layout = [
+            'chnk_layout', 'denoise_layout', 'remove_bck_layout', 'est_mot_layout', 'Transform_layout', 
+            'seeds_init_layout', 'pnr_refine_layout', 'ks_refine_layout', 'seeds_merge_layout', 
+            'initA_layout', 'initC_layout', 'unit_merge_layout', 'get_noise_fft_layout', 
+            'update_spatial_layout', 'update_background_layout', 'update_temporal_layout', 'generate_videos_layout'
+        ]
         self.setWindowTitle("xarray_player")
         self.setGeometry(0, 0, 800, 500)
 
