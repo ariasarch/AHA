@@ -1,5 +1,5 @@
 #Core video processing functions
-
+import sys
 import cv2
 import numpy as np
 import xarray as xr
@@ -10,6 +10,8 @@ from numpy.fft import fft2, fftshift
 from typing import Callable, List, Optional, Union
 import dask as da
 import rechunker
+
+sys.setrecursionlimit(10**6)
 
 def get_optimal_chk(
     arr: xr.DataArray,
@@ -109,6 +111,31 @@ def factors(x: int) -> List[int]:
     """
     return [i for i in range(1, x + 1) if x % i == 0]
 
+def remove_glow(varr):
+    """
+    Removes the general glow background caused by the vignetting effect from a video.
+
+    Args:
+        varr (xarray.DataArray): The video data as an xarray DataArray, 
+                                 with 'frame' as one of the dimensions.
+
+    Returns:
+        xarray.DataArray: The video data with the glow background removed.
+    """
+    # Ensure that 'frame' is a dimension in varr
+    if 'frame' not in varr.dims:
+        raise ValueError("The input xarray must have 'frame' as one of its dimensions.")
+
+    # Compute the minimum projection across all frames
+    varr_min = varr.min(dim='frame').compute()
+
+    # Subtract the minimum projection from all frames
+    varr_ref = varr - varr_min
+
+    return varr_ref
+
+
+
 
 def denoise(frame, method='gaussian', kernel_size=5):
     """
@@ -135,28 +162,7 @@ def denoise(frame, method='gaussian', kernel_size=5):
     else:
         raise ValueError(f"Denoise method {method} not understood")
     
-def remove_glow(varr):
-    """
-    Removes the general glow background caused by the vignetting effect from a video.
 
-    Args:
-        varr (xarray.DataArray): The video data as an xarray DataArray, 
-                                 with 'frame' as one of the dimensions.
-
-    Returns:
-        xarray.DataArray: The video data with the glow background removed.
-    """
-    # Ensure that 'frame' is a dimension in varr
-    if 'frame' not in varr.dims:
-        raise ValueError("The input xarray must have 'frame' as one of its dimensions.")
-
-    # Compute the minimum projection across all frames
-    varr_min = varr.min(dim='frame').compute()
-
-    # Subtract the minimum projection from all frames
-    varr_ref = varr - varr_min
-
-    return varr_ref
 
 def remove_background(frame, method="uniform", kernel_size=5):
     """
@@ -204,8 +210,8 @@ def estimate_motion(current_frame, previous_frame):
     }
 
     # Convert frames to grayscale
-    prev_gray = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2GRAY)
-    curr_gray = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
+    prev_gray = previous_frame
+    curr_gray = current_frame
 
     # Calculate optical flow
     flow = cv2.calcOpticalFlowFarneback(prev_gray, curr_gray, None, **flow_params)
