@@ -146,21 +146,26 @@ class Threading(QThread):
         self.kernel_size=self.slider_value
         vp.remove_background(frame, method="uniform", kernel_size=self.kernel_size)
 
-    def estimate_motion(self):
+    def estimate_motion(self,frame):
             if self.frame_index < len(self.data_array):
-                current_frame_1 = self.data_array[self.frame_index-1]
-                previous_frame = self.data_array[self.frame_index-2]
+                current_frame_1 = self.data_array[self.frame_index]
+                previous_frame = self.data_array[self.frame_index-1]
                 self.motion_vector = vp.estimate_motion(current_frame_1, previous_frame)
     
     def apply_transform(self, frame):
+        self.estimate_motion(frame)
         if self.frame_index < len(self.data_array):
             vp.apply_transform(frame, self.motion_vector, border_mode=cv2.BORDER_REFLECT)
 ### will add further functions from ui handlers here and then add them to the current_function array
     def current_function(self, frame):
-        if self.current_function_index == 1:
-            return self.denoise(frame)
+        if self.current_function_index==1:
+            return self.deglow(frame)
         elif self.current_function_index == 2:
+            return self.denoise(frame)
+        elif self.current_function_index == 3:
             return self.remove_background(frame)
+        elif self.current_function_index == 4:
+            self.apply_transform(frame)
         else:
             return frame
 
