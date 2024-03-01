@@ -139,6 +139,15 @@ class Threading(QThread):
         self.chunk_comp, self.chunk_store= vp.get_optimal_chk(self.data_array)
         # Note: currently have no idea why we are calling this function, but may be important later
 
+    def deglow_wrapper(self):
+        if self.data_array is not None:
+            # Call the remove_glow function from the video_processing module
+            self.data_array = vp.remove_glow(self.data_array)
+        else:
+            print("Data array is not loaded.")
+
+
+
     def denoise(self,frame):
         self.kernel_size=self.slider_value
         vp.denoise(frame, method='gaussian', kernel_size=self.kernel_size)
@@ -274,13 +283,14 @@ class MainWindow(QDialog):
     def __init__(self):
         super().__init__()
         self.Button_name = [
-            'Get optimal chunk', 'Denoise', 'Remove Background', 'Estimate Motion', 'Apply Transform', 
+            'Get optimal chunk','Remove Glow Background', 'Denoise', 'Remove Background', 'Estimate Motion', 'Apply Transform', 
             'Seeds Init', 'PNR Refine', 'KS Refine', 'Seeds Merge', 
             'Init A', 'Init C', 'Unit Merge', 'Get Noise FFT', 
             'Update Spatial', 'Update Background', 'Update Temporal', 'Generate Videos'
         ]
         self.slider_name = [
             'None',  # Get optimal chunk
+            'None', # Deglow
             'Kernel Size',  # Denoise
             'Kernel Size',  # Remove Background
             'None',  # Estimate Motion
@@ -301,6 +311,7 @@ class MainWindow(QDialog):
 
         self.Min_slider = [
             0,  # Get optimal chunk
+            0,  # Deglow 
             1,  # Denoise
             1,  # Remove Background
             0,  # Estimate Motion
@@ -321,6 +332,7 @@ class MainWindow(QDialog):
 
         self.Max_slider = [
             1,  # Get optimal chunk
+            10, # Deglow
             10, # Denoise
             10, # Remove Background
             1,  # Estimate Motion
@@ -341,6 +353,7 @@ class MainWindow(QDialog):
 
         self.init_slider = [
             0,  # Get optimal chunk
+            5,  # Deglow
             5,  # Denoise
             5,  # Remove Background
             0,  # Estimate Motion
@@ -361,13 +374,13 @@ class MainWindow(QDialog):
 
         self.current_control = 0 
         self.current_widget = [
-            'chnk_widget', 'denoise_widget', 'remove_bck_widget', 'est_mot_widget', 'Transform_widget', 
+            'chnk_widget', 'remove_glow_widget', 'denoise_widget', 'remove_bck_widget', 'est_mot_widget', 'Transform_widget', 
             'seeds_init_widget', 'pnr_refine_widget', 'ks_refine_widget', 'seeds_merge_widget', 
             'initA_widget', 'initC_widget', 'unit_merge_widget', 'get_noise_fft_widget', 
             'update_spatial_widget', 'update_background_widget', 'update_temporal_widget', 'generate_videos_widget'
         ]
         self.current_layout = [
-            'chnk_layout', 'denoise_layout', 'remove_bck_layout', 'est_mot_layout', 'Transform_layout', 
+            'chnk_layout', 'deglow_widget', 'denoise_layout', 'remove_bck_layout', 'est_mot_layout', 'Transform_layout', 
             'seeds_init_layout', 'pnr_refine_layout', 'ks_refine_layout', 'seeds_merge_layout', 
             'initA_layout', 'initC_layout', 'unit_merge_layout', 'get_noise_fft_layout', 
             'update_spatial_layout', 'update_background_layout', 'update_temporal_layout', 'generate_videos_layout'
