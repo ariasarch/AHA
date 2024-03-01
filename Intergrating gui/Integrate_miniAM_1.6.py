@@ -163,6 +163,69 @@ class Threading(QThread):
         self.seeds = vp.seeds_init(frame, self.threshold, self.min_distance)
         return frame 
     
+    def pnr_refine_wrapper(self):
+        if self.frame_index < len(self.data_array) and hasattr(self, 'seeds') and self.seeds:
+            current_frame = self.data_array[self.frame_index].values
+            noise_freq = 0.25  # Example value, adjust as necessary.
+            thres = 1.5  # Example value, adjust as necessary.
+            refined_seeds = pnr_refine(current_frame, self.seeds, noise_freq, thres)
+            self.seeds = refined_seeds
+        else:
+            print("No frame or seeds available for PNR refinement.")
+
+    def ks_refine_wrapper(self):
+        if self.frame_index < len(self.data_array) and hasattr(self, 'seeds') and self.seeds:
+            current_frame = self.data_array[self.frame_index].values
+            # Adjust the significance_level if needed
+            significance_level = 0.05
+            self.seeds = vp.ks_refine(current_frame, self.seeds, significance_level)
+        else:
+            print("No frame or seeds available for KS refinement.")
+    
+    def seeds_merge_wrapper(self):
+        if hasattr(self, 'seeds') and self.seeds:
+            distance_threshold = 5  # Example value, adjust as necessary
+            self.seeds = vp.seeds_merge(self.seeds, distance_threshold)
+
+    def initA_wrapper(self):
+        if self.frame_index < len(self.data_array) and hasattr(self, 'seeds') and self.seeds:
+            current_frame = self.data_array[self.frame_index].values
+            spatial_radius = 5  # Example value, adjust as necessary
+            self.A = [vp.initA(current_frame, seed, spatial_radius) for seed in self.seeds]
+
+    def initC_wrapper(self):
+        if hasattr(self, 'A') and self.A:
+            self.C = vp.initC(self.data_array, self.A)
+
+    def unit_merge_wrapper(self):
+        if hasattr(self, 'footprints') and self.footprints:
+            similarity_threshold = 0.8  # Example value, adjust as necessary
+            self.footprints = vp.unit_merge(self.footprints, similarity_threshold)
+
+    def get_noise_fft_wrapper(self):
+        if self.frame_index < len(self.data_array):
+            current_frame = self.data_array[self.frame_index].values
+            self.noise_fft = vp.get_noise_fft(current_frame)
+
+    def update_spatial_wrapper(self):
+        if hasattr(self, 'footprints') and self.footprints:
+            update_factor = 0.1  # Example value, adjust as necessary
+            self.footprints = [vp.update_spatial(footprint, update_factor) for footprint in self.footprints]
+
+    def update_background_wrapper(self):
+        if hasattr(self, 'background_components') and self.background_components:
+            update_factor = 0.1  # Example value, adjust as necessary
+            self.background_components = [vp.update_background(component, update_factor) for component in self.background_components]
+
+    def update_temporal_wrapper(self):
+        if hasattr(self, 'temporal_components') and self.temporal_components:
+            update_factor = 0.1  # Example value, adjust as necessary
+            self.temporal_components = vp.update_temporal(self.data_array, self.temporal_components, update_factor)
+
+    def generate_videos_wrapper(self):
+        if hasattr(self, 'data_array'):
+            transformations = [vp.apply_transform]  # Example transformation function, adjust as necessary
+            self.generated_videos = vp.generate_videos(self.data_array, transformations)
 
 ### will add further functions from ui handlers here and then add them to the current_function array
     def current_function(self, frame):
