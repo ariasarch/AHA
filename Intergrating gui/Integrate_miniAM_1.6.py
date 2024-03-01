@@ -132,6 +132,7 @@ class Threading(QThread):
             for indx in range(len(self.data_array)):
                 # change right side based on index
                 self.data_array[indx].values=self.current_function(self.data_array[indx].values)
+
 ### added functions for calling miniAM video_processing
 
     def  get_chunk(self):
@@ -157,6 +158,12 @@ class Threading(QThread):
         if self.frame_index < len(self.data_array):
             vp.apply_transform(frame, self.motion_vector, border_mode=cv2.BORDER_REFLECT)
     
+    def seeds_init_wrapper(self, frame):
+        self.seeds_init_wrapper(frame)
+        self.seeds = vp.seeds_init(frame, self.threshold, self.min_distance)
+        return frame 
+    
+
 ### will add further functions from ui handlers here and then add them to the current_function array
     def current_function(self, frame):
         if self.current_function_index == 1:
@@ -209,10 +216,86 @@ class MainWindow(QDialog):
             'Init A', 'Init C', 'Unit Merge', 'Get Noise FFT', 
             'Update Spatial', 'Update Background', 'Update Temporal', 'Generate Videos'
         ]
-        self.slider_name=['None','Kernel size','Kernel Size', 'None', 'None']
-        self.Min_slider=[0, 1,1,0,0] # Minimum value for slider
-        self.Max_slider=[1,10,10,1,0]
-        self.init_slider=[0,5,5,0,0] # Initial values for sliders
+        self.slider_name = [
+            'None',  # Get optimal chunk
+            'Kernel Size',  # Denoise
+            'Kernel Size',  # Remove Background
+            'None',  # Estimate Motion
+            'None',  # Apply Transform
+            'Threshold',  # Seeds Init
+            'Noise Frequency',  # PNR Refine
+            'Significance Level',  # KS Refine
+            'None',  # Seeds Merge (not applicable, placeholder)
+            'Spatial Radius',  # Init A
+            'None',  # Init C (not applicable, placeholder)
+            'None',  # Unit Merge (not applicable, placeholder)
+            'None',  # Get Noise FFT (not applicable, placeholder)
+            'Update Factor',  # Update Spatial
+            'Update Factor',  # Update Background
+            'Update Factor',  # Update Temporal
+            'None'  # Generate Videos (not applicable, placeholder)
+        ]
+
+        self.Min_slider = [
+            0,  # Get optimal chunk
+            1,  # Denoise
+            1,  # Remove Background
+            0,  # Estimate Motion
+            0,  # Apply Transform
+            0,  # Seeds Init (e.g., threshold min)
+            1,  # PNR Refine (e.g., min noise frequency)
+            0,  # KS Refine (e.g., significance level min)
+            0,  # Seeds Merge (not applicable, placeholder)
+            1,  # Init A (e.g., spatial radius min)
+            0,  # Init C (not applicable, placeholder)
+            0,  # Unit Merge (not applicable, placeholder)
+            0,  # Get Noise FFT (not applicable, placeholder)
+            0,  # Update Spatial (e.g., update factor min)
+            0,  # Update Background (e.g., update factor min)
+            0,  # Update Temporal (e.g., update factor min)
+            0   # Generate Videos (not applicable, placeholder)
+        ]
+
+        self.Max_slider = [
+            1,  # Get optimal chunk
+            10, # Denoise
+            10, # Remove Background
+            1,  # Estimate Motion
+            0,  # Apply Transform
+            255,# Seeds Init (e.g., threshold max)
+            10, # PNR Refine (e.g., max noise frequency)
+            1,  # KS Refine (e.g., significance level max)
+            0,  # Seeds Merge (not applicable, placeholder)
+            10, # Init A (e.g., spatial radius max)
+            0,  # Init C (not applicable, placeholder)
+            0,  # Unit Merge (not applicable, placeholder)
+            0,  # Get Noise FFT (not applicable, placeholder)
+            1,  # Update Spatial (e.g., update factor max)
+            1,  # Update Background (e.g., update factor max)
+            1,  # Update Temporal (e.g., update factor max)
+            0   # Generate Videos (not applicable, placeholder)
+        ]
+
+        self.init_slider = [
+            0,  # Get optimal chunk
+            5,  # Denoise
+            5,  # Remove Background
+            0,  # Estimate Motion
+            0,  # Apply Transform
+            100,# Seeds Init (e.g., initial threshold)
+            5,  # PNR Refine (e.g., initial noise frequency)
+            0,  # KS Refine (e.g., initial significance level)
+            0,  # Seeds Merge (not applicable, placeholder)
+            5,  # Init A (e.g., initial spatial radius)
+            0,  # Init C (not applicable, placeholder)
+            0,  # Unit Merge (not applicable, placeholder)
+            0,  # Get Noise FFT (not applicable, placeholder)
+            0,  # Update Spatial (e.g., initial update factor)
+            0,  # Update Background (e.g., initial update factor)
+            0,  # Update Temporal (e.g., initial update factor)
+            0   # Generate Videos (not applicable, placeholder)
+        ]
+
         self.current_control = 0 
         self.current_widget = [
             'chnk_widget', 'denoise_widget', 'remove_bck_widget', 'est_mot_widget', 'Transform_widget', 
@@ -259,7 +342,6 @@ class MainWindow(QDialog):
             self.current_widget[i]=QWidget()
             self.current_layout[i]=QVBoxLayout(self.current_widget[i])
 
-
         layout.addWidget(self.button1)
         layout.addWidget(self.button_stop)
         layout.addWidget(self.save_video_button)
@@ -282,7 +364,6 @@ class MainWindow(QDialog):
         if cur_index>=2:
             self.controlStack.removeWidget(self.current_widget[cur_index-1])
         current_layo=self.current_layout[cur_index] 
-
 
         print(cur_index)
         print(self.Button_name[cur_index])
@@ -350,6 +431,15 @@ class MainWindow(QDialog):
         self.thread.temp_mod_frame(current_value)
         self.current_label.setText("{0}: {1}".format(self.slider_name[self.current_control], str(current_value))) 
         # self.current_value = current_value
+
+    @Slot()
+    def on_threshold_change(self, value):
+        self.thread.threshold = value
+
+    @Slot()
+    def on_min_distance_change(self, value):
+        self.thread.min_distance = value
+
             
 
 if __name__ == "__main__":
