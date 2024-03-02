@@ -112,7 +112,9 @@ class Threading(QThread):
     def temp_mod_frame(self, value): # takes value from on_brightness_change and adjusts brightness factor
         # call function based on passed value
         self.slider_value = value
-
+        
+    def temp_mod_frame_2(self, value_2):
+        self.slider_value_2=value_2
 
     def get_xarray(self):  # Returns the current xarray for saving
         return self.data_array
@@ -181,8 +183,7 @@ class Threading(QThread):
             return vp.apply_transform(frame, self.motion_vector, border_mode=cv2.BORDER_REFLECT)
 
     def seeds_init_wrapper(self, frame):
-        # self.seeds_init_wrapper(frame)
-        self.seeds = vp.seeds_init(frame, self.threshold, self.min_distance)
+        self.seeds = vp.seeds_init(frame, self.slider_value, self.slider_value_2)
         return frame 
     
     def pnr_refine_wrapper(self):
@@ -461,6 +462,17 @@ class MainWindow(QDialog):
         self.current_slider.setMaximum(self.Max_slider[cur_index])
         self.current_slider.setValue(self.init_slider[cur_index])
         current_layo.addWidget(self.current_slider)
+
+        if cur_index==4:
+            self.current_label_2 = QLabel('Minimum seed distance: ' + str(10), self.current_widget[cur_index])
+            current_layo.addWidget(self.current_label_2) # Add label for displaying slider value
+            self.current_slider_2 = QSlider(Qt.Horizontal, self)
+            self.current_slider_2.valueChanged[int].connect(self.on_slider_change_2)
+            self.current_slider_2.setMinimum(1)
+            self.current_slider_2.setMaximum(21)
+            self.current_slider_2.setValue(10)
+        current_layo.addWidget(self.current_slider_2)
+
         self.controlStack.addWidget(self.current_widget[cur_index])
 
     def switch_control_set(self, index):
@@ -508,10 +520,15 @@ class MainWindow(QDialog):
 
     @Slot()
     def on_slider_change(self):
-        current_value = self.current_slider.value()
-        self.thread.temp_mod_frame(current_value)
-        self.current_label.setText("{0}: {1}".format(self.slider_name[self.current_control], str(current_value))) 
-        # self.current_value = current_value
+            current_value = self.current_slider.value()
+            self.thread.temp_mod_frame(current_value)
+            self.current_label.setText("{0}: {1}".format(self.slider_name[self.current_control], str(current_value))) 
+    @Slot()
+    def on_slider_change_2(self):
+            current_value_2=self.current_slider_2.value()
+            self.thread.temp_mod_frame_2(current_value_2)
+            self.current_label_2.setText("{0}: {1}".format('Minimum seed distance', str(current_value_2))) 
+
             
 
 if __name__ == "__main__":
