@@ -4,7 +4,7 @@ import time
 import cv2
 from PySide6.QtCore import QThread, Signal, Slot, Qt, QObject
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QApplication, QDialog, QPushButton, QVBoxLayout, QLabel, QFileDialog, QSlider, QStackedWidget, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QPushButton, QVBoxLayout, QLabel, QFileDialog, QSlider, QStackedWidget, QWidget, QProgressBar
 from xarray.core.dataarray import DataArray
 import numpy as np
 import video_processing as vp
@@ -69,6 +69,7 @@ class Threading(QThread):
 
     def get_video(self):
         self.slider_value = 5
+        self.slider_value_2=10
         self.stop_thread = False
         time_frame = 1 / self.frame_rate
 
@@ -118,6 +119,9 @@ class Threading(QThread):
 
     def get_xarray(self):  # Returns the current xarray for saving
         return self.data_array
+    
+    def get_cur_frame(self):
+        return self.frame_index
     
     def set_file_path(self,file_path):
         self.video_path= file_path
@@ -186,35 +190,28 @@ class Threading(QThread):
         self.seeds = vp.seeds_init(frame, self.slider_value, self.slider_value_2)
         return frame 
     
-    def pnr_refine_wrapper(self):
+    def pnr_refine_wrapper(self,frame):
         if self.frame_index < len(self.data_array) and hasattr(self, 'seeds') and self.seeds:
-            current_frame = self.data_array[self.frame_index].values
-            noise_freq = 0.25  # Example value, adjust as necessary.
-            thres = 1.5  # Example value, adjust as necessary.
-            refined_seeds = pnr_refine(current_frame, self.seeds, noise_freq, thres)
+            refined_seeds = vp.pnr_refine(frame, self.slider_value, self.slider_value_2)
             self.seeds = refined_seeds
         else:
             print("No frame or seeds available for PNR refinement.")
 
-    def ks_refine_wrapper(self):
+    def ks_refine_wrapper(self,frame):
         if self.frame_index < len(self.data_array) and hasattr(self, 'seeds') and self.seeds:
-            current_frame = self.data_array[self.frame_index].values
             # Adjust the significance_level if needed
-            significance_level = 0.05
-            self.seeds = vp.ks_refine(current_frame, self.seeds, significance_level)
+            self.seeds = vp.ks_refine(frame, self.seeds, self.slider_value)
         else:
             print("No frame or seeds available for KS refinement.")
     
     def seeds_merge_wrapper(self):
         if hasattr(self, 'seeds') and self.seeds:
-            distance_threshold = 5  # Example value, adjust as necessary
-            self.seeds = vp.seeds_merge(self.seeds, distance_threshold)
+          # Example value, adjust as necessary
+            self.seeds = vp.seeds_merge(self.seeds, self.slider_value)
 
-    def initA_wrapper(self):
+    def initA_wrapper(self,frame):
         if self.frame_index < len(self.data_array) and hasattr(self, 'seeds') and self.seeds:
-            current_frame = self.data_array[self.frame_index].values
-            spatial_radius = 5  # Example value, adjust as necessary
-            self.A = [vp.initA(current_frame, seed, spatial_radius) for seed in self.seeds]
+            self.A = [vp.initA(frame, seed, self.slider_value) for seed in self.seeds]
 
     def initC_wrapper(self):
         if hasattr(self, 'A') and self.A:
@@ -222,28 +219,23 @@ class Threading(QThread):
 
     def unit_merge_wrapper(self):
         if hasattr(self, 'footprints') and self.footprints:
-            similarity_threshold = 0.8  # Example value, adjust as necessary
-            self.footprints = vp.unit_merge(self.footprints, similarity_threshold)
+            self.footprints = vp.unit_merge(self.footprints, self.slider_value)
 
-    def get_noise_fft_wrapper(self):
+    def get_noise_fft_wrapper(self, frame):
         if self.frame_index < len(self.data_array):
-            current_frame = self.data_array[self.frame_index].values
-            self.noise_fft = vp.get_noise_fft(current_frame)
+            self.noise_fft = vp.get_noise_fft(frame)
 
     def update_spatial_wrapper(self):
         if hasattr(self, 'footprints') and self.footprints:
-            update_factor = 0.1  # Example value, adjust as necessary
-            self.footprints = [vp.update_spatial(footprint, update_factor) for footprint in self.footprints]
+            self.footprints = [vp.update_spatial(footprint, self.slider_value) for footprint in self.footprints]
 
     def update_background_wrapper(self):
         if hasattr(self, 'background_components') and self.background_components:
-            update_factor = 0.1  # Example value, adjust as necessary
-            self.background_components = [vp.update_background(component, update_factor) for component in self.background_components]
+            self.background_components = [vp.update_background(component, self.slider_value) for component in self.background_components]
 
     def update_temporal_wrapper(self):
         if hasattr(self, 'temporal_components') and self.temporal_components:
-            update_factor = 0.1  # Example value, adjust as necessary
-            self.temporal_components = vp.update_temporal(self.data_array, self.temporal_components, update_factor)
+            self.temporal_components = vp.update_temporal(self.data_array, self.temporal_components, self.slider_value)
 
     def generate_videos_wrapper(self):
         if hasattr(self, 'data_array'):
@@ -387,6 +379,10 @@ class MainWindow(QDialog):
             'initA_layout', 'initC_layout', 'unit_merge_layout', 'get_noise_fft_layout', 
             'update_spatial_layout', 'update_background_layout', 'update_temporal_layout', 'generate_videos_layout'
         ]
+        self.slider_name_2=['Minumum seed distance', 'Threshold']
+        self.init_slider_2=[10,1.5]
+        self.Max_slider_2=[20,3.6]
+        self.Min_slider_2=[1,0.1]
         
         self.setWindowTitle("xarray_player")
         self.setGeometry(0, 0, 800, 500)
@@ -404,6 +400,9 @@ class MainWindow(QDialog):
         # Current control set index and Next Button setup
         self.next_btn = QPushButton("Next", self)
         self.next_btn.clicked.connect(self.next_control_set)
+        # self.progress = QProgressBar(self)
+        # self.progress.setGeometry(200, 80, 250, 20)
+        # self.progress.setValue(self.get_frame_index)
 
         # Save video
         self.save_video_button = QPushButton("Save Video", self)
@@ -446,10 +445,6 @@ class MainWindow(QDialog):
             self.controlStack.removeWidget(self.current_widget[cur_index-1])
         current_layo=self.current_layout[cur_index] 
 
-
-        # print(cur_index)
-        # print(self.Button_name[cur_index])
-
         self.current_function_Label = QLabel('{}'.format(self.Button_name[cur_index]), self.current_widget[cur_index])
         current_layo.addWidget(self.current_function_Label)
 
@@ -463,15 +458,16 @@ class MainWindow(QDialog):
         self.current_slider.setValue(self.init_slider[cur_index])
         current_layo.addWidget(self.current_slider)
 
-        if cur_index==4:
-            self.current_label_2 = QLabel('Minimum seed distance: ' + str(10), self.current_widget[cur_index])
+        if cur_index==4 or cur_index==5:
+            intern_indx=cur_index-4
+            self.current_label_2 = QLabel(self.slider_name_2[intern_indx] + ': ' + str(self.init_slider_2[intern_indx]), self.current_widget[cur_index])
             current_layo.addWidget(self.current_label_2) # Add label for displaying slider value
             self.current_slider_2 = QSlider(Qt.Horizontal, self)
             self.current_slider_2.valueChanged[int].connect(self.on_slider_change_2)
             self.current_slider_2.setMinimum(1)
             self.current_slider_2.setMaximum(21)
             self.current_slider_2.setValue(10)
-        current_layo.addWidget(self.current_slider_2)
+            current_layo.addWidget(self.current_slider_2)
 
         self.controlStack.addWidget(self.current_widget[cur_index])
 
@@ -527,9 +523,11 @@ class MainWindow(QDialog):
     def on_slider_change_2(self):
             current_value_2=self.current_slider_2.value()
             self.thread.temp_mod_frame_2(current_value_2)
-            self.current_label_2.setText("{0}: {1}".format('Minimum seed distance', str(current_value_2))) 
+            self.current_label_2.setText("{0}: {1}".format(self.slider_name_2[self.current_control-4], str(current_value_2)))  
 
-            
+    @Slot()
+    def get_frame_index(self):
+        self.thread.get_cur_frame()          
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
