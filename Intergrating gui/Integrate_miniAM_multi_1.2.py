@@ -2,41 +2,103 @@ import sys
 import time
 
 import cv2
-from PySide6.QtCore import QThread, Signal, Slot, Qt, QObject
-from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QApplication, QDialog, QPushButton, QVBoxLayout, QLabel, QFileDialog, QSlider, QStackedWidget, QWidget, QProgressBar, QCheckBox, QHBoxLayout
+from PyQt5.QtCore import Qt, QObject, QRunnable, QThreadPool, QThread, pyqtSignal, pyqtSlot, QRect
+
+# from PySide6.QtGui import QImage, QPixmap
+# from PySide6.QtWidgets import QApplication, QDialog, QPushButton, QVBoxLayout, QLabel, QFileDialog, QSlider, QStackedWidget, QWidget, QProgressBar, QCheckBox, QHBoxLayout
 from xarray.core.dataarray import DataArray
 import numpy as np
 import video_processing as vp
-import threading as Thread
 
 sys.setrecursionlimit(10**6)
 
-class Threading(QThread):
-    updateFrame = Signal(QImage)
-    updateProgressBar= Signal(int)
-    
+from PyQt5.QtWidgets import (
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, QLabel, QProgressBar,
+    QPushButton, QFileDialog, QWidget, QSlider, QStackedWidget
+)
+from PyQt5.QtGui import QImage, QPixmap
+import numpy as np
+import cv2
+import time
+import sys
 
-    def __init__(self, parent=None):
+# Assuming vp is another module in your project, as it is not provided
+# Comment or replace the following line with the actual import statement
+#import vp
 
-        super().__init__(parent)
-        self.frame_rate = 30  # Frames per second
+# Importing DataArray from xarray
+from xarray import DataArray
+
+class Processing_HUB(QObject):
+    updateFrame = pyqtSignal(QImage)
+    updateProgressBar= pyqtSignal(int)
+
+    def __init__(self):
+        super(Processing_HUB, self).__init__()
+        self.video_path = None
         self.data_array = None
-        self.stats = None
-        self.stop_thread = False
-        self.frame_index = 0  # For progress bar
-        self.play_index=0 # For get_video progress
-        self.button_index= 0 
-        self.slider_value = 0
-        self.slider_value_2 = None
-        self.current_function_index = 0
-        self.limit=10**6
-        self.init_slider_val=0
-        self.init_slider_val_2= None
-        self.convert_2_contours=False
-        self.footprints=None
-        self.first_play=0
+        self.play_video_instance = None
+
+    def set_file_path(self, file_path):
+        self.video_path = file_path
+
+    def get_initial_video(self):
+        if self.video_path is not None and len(self.video_path) > 0:
+            # Assuming you have a function 'load_video_data' to load the video data
+            self.data_array = self.load_video_data()
+            if self.data_array is not None and len(self.data_array) > 0:
+                self.play_video_instance = Play_video(self.data_array)
+                self.play_video_instance.updateFrame.connect(self.handle_update_frame)
+                self.play_video_instance.start()
+        else:
+            print('Failed to get video path')
+
+    def handle_update_frame(self, qimage):
+        self.updateFrame.emit(qimage)
+
+
+    def load_video_data(self):
+        self.initial_file_opening = Initial_file_opening(self.video_path)
+        self.threadpool = QThreadPool.globalInstance()
+        self.threadpool.start(self.initial_file_opening)
+        self.threadpool.waitForDone()
+        return self.initial_file_opening.data_array
+
+    def save_changes_2_xarray(self):
+            self.play_video_instance.stop_thread=True # Stops video feed so that memmory can be used for conversion
+            self.play_video_instance.ThreadActive=False # Keeps play button from being activated
+            self.data_array = self.apply_changes()
+            time.sleep(0.1)
+            print('changes applied')
+            self.play_video_instance.ThreadActive=True # Allows play button to function again
+            if self.play_video_instance.isFinished:
+                if self.data_array is not None and len(self.data_array) > 0:
+                    self.play_video_instance = Play_video(self.data_array)
+                    self.play_video_instance.updateFrame.connect(self.handle_update_frame)
+                    self.play_video_instance.start()
+
         
+    def apply_changes(self):
+        self.save_xarray_instance=Save_changes_2_xarray(self.data_array)
+        self.save_xarray_instance.updateProgressBar.connect(self.handle_ProgressBar)
+        self.save_xarray_instance.start()
+        self.save_xarray_instance.wait()
+        return self.save_xarray_instance.data_array
+        
+    def handle_ProgressBar(self, integer):
+        self.updateProgressBar.emit(integer)
+
+    def update_button_indx(self, button_index):
+        self.current_function_index= button_index
+    
+class Initial_file_opening(QRunnable):
+    
+    def __init__(self, file_path):
+        super(Initial_file_opening, self).__init__()
+        self.first_play = 0
+        self.limit = 10 ** 6
+        self.video_path = file_path
+
 
     def run(self):
         sys.setrecursionlimit(self.limit)
@@ -46,7 +108,6 @@ class Threading(QThread):
                 self.frame_array_2_xarray()
                 print('xarray_generated_from_file')
                 self.first_play+=1
-            self.get_video()
         else:
             print('No video file selected. Click: Upload Video: to select .avi video file')
 
@@ -79,31 +140,57 @@ class Threading(QThread):
                 "channel": np.arange(self.stats[3]),
             },
         )
-        self.ThreadActive=True
+        self.ThreadActive = True
         self.get_chunk()
+    
+    def get_chunk(self):
+        if self.data_array is not None and len(self.data_array) > 0:
+            # Assuming you want to pass the first frame, modify as needed
+            frame_to_pass = self.data_array
+            self.chunk_comp, self.chunk_store = vp.get_optimal_chk(frame_to_pass)
+
+class Play_video(QThread):
+    updateFrame = pyqtSignal(QImage)
+
+    def __init__(self, data_array):
+        super(Play_video, self).__init__()
+        self.data_array = data_array
+        self.frame_rate = 30
+        self.stop_thread = False
+        self.convert_2_contours = False
+        self.play_index=0 # For get_video progress
+        self.init_slider_val=0
+        self.init_slider_val_2= None
+        self.convert_2_contours=False
+        self.slider_value = 0
+        self.slider_value_2=None
+
+    def run(self):
+        self.get_video()
+        if self.slider_value == 0:
+            print('slide value is not being called')
 
     def get_video(self):
-        self.stop_thread = False
+        print('Playing')
         time_frame = 1 / self.frame_rate
         if self.data_array is not None:
-            while self.ThreadActive:
-                for i in range(self.play_index, len(self.data_array)):
-                    if not self.stop_thread:
-                        img = self.data_array[i].values
+            for i in range(len(self.data_array)):
+                if not self.stop_thread:
+                    img = self.data_array[i].values
+                    if img is not None:
+                        height, width, channel = img.shape
                         if self.init_slider_val != 0:
                             frame = img
-                            img = self.current_function(frame)
-                        if img is not None:
-                            height, width, channel = img.shape
-                            if self.convert_2_contours==True:
-                                img=self.convert_contours(img)
-                            q_img = QImage(img, width, height, QImage.Format_RGB888)
-                            self.updateFrame.emit(q_img)
-                            time.sleep(time_frame)
-                            self.play_index = i
-                        else:
-                            break
+                            img = self.handle_get_current_function(frame)
+                        if self.convert_2_contours:
+                            img = self.convert_contours(img)
+                        q_img = QImage(img.data, width, height, img.strides[0], QImage.Format_RGB888)
+                        self.updateFrame.emit(q_img)
+                        time.sleep(time_frame)
                     else:
+                        print('Failed to get frame')
+                        continue   
+                else:
                         self.prev_slider_value = self.init_slider_val
                         self.prev_slider_value_2 = self.init_slider_val_2
                         while self.stop_thread:
@@ -112,56 +199,33 @@ class Threading(QThread):
                                 self.prev_slider_value_2 = self.slider_value_2
                                 img = self.data_array[i].values
                                 frame = img
-                                img = self.current_function(frame)
-                            if img is not None:
-                                height, width, channel = img.shape
-                                if self.convert_2_contours==True:
-                                    img=self.convert_contours(img)
-                                q_img = QImage(img, width, height, QImage.Format_RGB888)
-                                self.updateFrame.emit(q_img)
-                                time.sleep(time_frame)      
-    def get_video_2(self):
-            self.stop_thread = False
-            time_frame = 1 / self.frame_rate
-            if self.data_array is not None:
-                while self.ThreadActive:
-                    for i in range(self.play_index, len(self.data_array)):
-                        if not self.stop_thread:
-                            img = self.data_array[i].values
-                            if self.init_slider_val != 0:
-                                frame = img
-                                img = self.current_function(frame)
-                            if img is not None:
-                                height, width, channel = img.shape
-                                if self.convert_2_contours==True:
-                                    img=self.convert_contours(img)
-                                q_img = QImage(img, width, height, QImage.Format_RGB888)
-                                self.updateFrame.emit(q_img)
-                                time.sleep(time_frame)
-                                self.play_index = i
-                            else:
-                                break
-                        else:
-                            self.prev_slider_value = self.init_slider_val
-                            self.prev_slider_value_2 = self.init_slider_val_2
-                            while self.stop_thread:
-                                if self.slider_value != self.prev_slider_value or self.slider_value_2 != self.prev_slider_value_2:
-                                    self.prev_slider_value = self.slider_value
-                                    self.prev_slider_value_2 = self.slider_value_2
-                                    img = self.data_array[i].values
-                                    frame = img
-                                    img = self.current_function(frame)
+                                img = self.handle_get_current_function(frame)
                                 if img is not None:
                                     height, width, channel = img.shape
-                                    if self.convert_2_contours==True:
-                                        img=self.convert_contours(img)
-                                    q_img = QImage(img, width, height, QImage.Format_RGB888)
+                                    if self.convert_2_contours:
+                                        img = self.convert_contours(img)
+                                    q_img = QImage(img.data, width, height, img.strides[0], QImage.Format_RGB888)
                                     self.updateFrame.emit(q_img)
-                                    time.sleep(time_frame)                                   
+                                    time.sleep(time_frame)
+                                else:
+                                    print('Failed to get frame')
+                            else:
+                                time.sleep(0.1)  # Sleep briefly to avoid high CPU usage 
 
-    def update_button_indx(self, button_index):
-        self.current_function_index= button_index
+    def handle_get_current_function(self,frame):
+            self.get_funct_instance=Get_current_function(frame)
+            self.threadpool = QThreadPool.globalInstance()
+            self.threadpool.start(self.get_funct_instance)
+            self.threadpool.waitForDone()
+            return self.get_funct_instance.new_frame               
 
+    def convert_contours(self, frame):
+        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        ret, thresh_frame = cv2.threshold(gray_frame, 180, 200, cv2.THRESH_BINARY)
+        contours, her = cv2.findContours(thresh_frame, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+        img = cv2.drawContours(self.whiteFrame, contours, -1,(127,127, 127), 1)
+        return img
+    
     def temp_mod_frame(self, value): # takes value from on__change and adjusts value for functions
         # call function based on passed value
         self.slider_value = value
@@ -177,11 +241,6 @@ class Threading(QThread):
         self.slider_value_2=value_init_2
         self.init_slider_val_2=value_init_2
 
-    def get_xarray(self):  # Returns the current xarray for saving
-        return self.data_array
-    
-    def set_file_path(self,file_path):
-        self.video_path= file_path
 
     def stop(self): # allows the stop signal from MainWindow to be read by Threading
         self.stop_thread = True # passes stop signal to video loop
@@ -189,42 +248,6 @@ class Threading(QThread):
     def resume(self): # allows the frame to be paused and resume from last frame
         self.ThreadActive=True
         self.stop_thread = False
-
-    def restart_video(self):
-        if self.play_index==(len(self.data_array)-1):
-            self.play_index=0
-            time.sleep(0.3)
-            self.stop_thread = False
-            self.ThreadActive=True
-            replay=Thread(target=self.get_video_2())
-            replay.start()
-            print('restarting')
-        else:
-            print('Video cannot be restarted until video has ended.')
-
-    def apply_mod_2_xarray(self): # takes current temp_mod_frame parrameter and applies it to entire array
-        self.stop_thread=True # Stops video feed so that memmory can be used for conversion
-        self.ThreadActive=False # Keeps play button from being activated
-        self.apply_changes()
-        print('changes applied')
-        self.ThreadActive=True # Allows play button to function again
-
-    def apply_changes(self):
-        if self.current_function_index!=0:
-            array_len=len(self.data_array)
-            for indx in range(array_len):
-                self.frame_index=indx
-                self.updateProgressBar.emit(int(indx/array_len*100))
-                new_frame=self.current_function(self.data_array[indx].values)
-                if new_frame is not None:  
-                    self.data_array[indx].values=new_frame
-                else:
-                    print('Failed to convert frame '+ str(indx))
-        self.frame_index=0
-        self.update_button_indx
-        self.current_function
-        print(self.current_function_index)
-        print(self.current_function)
     
     def contour_check(self):
         self.convert_2_contours=True
@@ -232,20 +255,97 @@ class Threading(QThread):
     def contour_unchecked(self):
         self.convert_2_contours=False
 
-    def convert_contours(self, frame):
-        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        ret, thresh_frame = cv2.threshold(gray_frame, 180, 200, cv2.THRESH_BINARY)
-        contours, her = cv2.findContours(thresh_frame, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
-        img = cv2.drawContours(self.whiteFrame, contours, -1,(127,127, 127), 1)
-        return img
+class Save_changes_2_xarray(QThread):
+        updateProgressBar= pyqtSignal(int)
 
+        def __init__(self, data_array):
+            super(Save_changes_2_xarray, self).__init__()
+            self.data_array=data_array
 
-    def get_chunk(self):
-        if self.data_array is not None and len(self.data_array) > 0:
-            # Assuming you want to pass the first frame, modify as needed
-            frame_to_pass = self.data_array
-            self.chunk_comp, self.chunk_store = vp.get_optimal_chk(frame_to_pass)
+        def run(self):
+            if self.data_array is not None and len(self.data_array) > 0:
+               self.apply_changes()
+            else:
+                print('Failed to pass data_array to Save_changes_2_xarray')
 
+        def apply_changes(self):
+            array_len=len(self.data_array)
+            for indx in range(array_len):
+                    self.frame_index=indx
+                    self.updateProgressBar.emit(int(indx/array_len*100))
+                    new_frame=self.handle_get_current_function(self.data_array[indx].values)
+                    if new_frame is not None:  
+                        self.data_array[indx].values=new_frame
+                    else:
+                        print('Failed to convert frame '+ str(indx))
+            self.frame_index=0
+            return self.data_array
+        
+        def handle_get_current_function(self,frame):
+            self.get_funct_instance=Get_current_function(frame)
+            self.threadpool = QThreadPool.globalInstance()
+            self.threadpool.start(self.get_funct_instance)
+            self.threadpool.waitForDone()
+            return self.get_funct_instance.new_frame 
+
+    
+class Get_current_function(QRunnable):
+    def __init__(self, frame):
+        super(Get_current_function, self).__init__()
+        self.frame = frame
+        self.data_array = None
+        self.current_function_index=0
+        self.current_function='None'
+
+### selects current function from index
+    def run(self):
+        try:
+            if 0 <= self.current_function_index < 15:
+                frame=self.frame
+                if self.current_function_index==0:
+                    self.new_frame=self.No_funct(frame) 
+                if self.current_function_index==1:
+                    self.current_function=self.deglow
+                    self.new_frame=self.deglow(frame)
+                elif self.current_function_index == 2:
+                    self.new_frame=self.denoise(frame)       
+                elif self.current_function_index == 3:
+                    return self.remove_background(frame)
+                elif self.current_function_index == 4:
+                    return self.apply_transform_2(frame)
+                elif self.current_function_index == 5:
+                    self.seeds_init_wrapper(frame)  # Assuming this updates internal state and doesn't modify the frame directly
+                    return frame
+                elif self.current_function_index == 6:
+                    return self.pnr_refine_wrapper(frame)
+                elif self.current_function_index == 7:
+                    return self.ks_refine_wrapper(frame)
+                elif self.current_function_index == 8:
+                    self.seeds_merge_wrapper(frame)  # Again, assuming updates internal state
+                    return frame
+                elif self.current_function_index == 9:
+                    return self.initA_wrapper(frame)
+                elif self.current_function_index == 10:
+                    return self.initC_wrapper(frame)
+                elif self.current_function_index == 11:
+                    self.unit_merge_wrapper()  # Assuming updates internal state
+                    return frame
+                elif self.current_function_index == 12:
+                    return self.get_noise_fft_wrapper(frame)
+                elif self.current_function_index == 13:
+                    return self.update_spatial_wrapper()
+                elif self.current_function_index == 14:
+                    return self.update_background_wrapper()
+                elif self.current_function_index == 15:
+                    return self.update_temporal_wrapper()
+                elif self.current_function_index == 16:
+                    self.generate_videos_wrapper()  # This might need special handling
+                    return frame
+        except Exception as e:
+                print(f'Error in Get_current_function: {e}')
+                self.new_frame = frame
+    
+    # function wrappers:
     def deglow(self, frame):
         new_frame = vp.remove_glow(self.data_array, frame)
         return new_frame
@@ -332,50 +432,28 @@ class Threading(QThread):
         if hasattr(self, 'data_array'):
             transformations = [vp.apply_transform]  # Example transformation function, adjust as necessary
             self.generated_videos = vp.generate_videos(self.data_array, transformations)
+    
+    def No_funct(self,frame):
+        return(frame)
 
-### will add further functions from ui handlers here and then add them to the current_function array
-    def current_function(self, frame):
-        if self.current_function_index==0:
-            return frame 
-        if self.current_function_index==1:
-            return self.deglow(frame)
-        elif self.current_function_index == 2:
-            return self.denoise(frame)
-        elif self.current_function_index == 3:
-            return self.remove_background(frame)
-        elif self.current_function_index == 4:
-            return self.apply_transform_2(frame)
-        elif self.current_function_index == 5:
-            self.seeds_init_wrapper(frame)  # Assuming this updates internal state and doesn't modify the frame directly
-            return frame
-        elif self.current_function_index == 6:
-            return self.pnr_refine_wrapper(frame)
-        elif self.current_function_index == 7:
-            return self.ks_refine_wrapper(frame)
-        elif self.current_function_index == 8:
-            self.seeds_merge_wrapper(frame)  # Again, assuming updates internal state
-            return frame
-        elif self.current_function_index == 9:
-            return self.initA_wrapper(frame)
-        elif self.current_function_index == 10:
-            return self.initC_wrapper(frame)
-        elif self.current_function_index == 11:
-            self.unit_merge_wrapper()  # Assuming updates internal state
-            return frame
-        elif self.current_function_index == 12:
-            return self.get_noise_fft_wrapper(frame)
-        elif self.current_function_index == 13:
-            return self.update_spatial_wrapper()
-        elif self.current_function_index == 14:
-            return self.update_background_wrapper()
-        elif self.current_function_index == 15:
-            return self.update_temporal_wrapper()
-        elif self.current_function_index == 16:
-            self.generate_videos_wrapper()  # This might need special handling
-            return frame
-        else:
-            return frame
+    def update_button_indx(self, button_index):
+        self.current_function_index= button_index
+        print('The current function index is '+str(self.current_function_index))
 
+    def temp_mod_frame(self, value): # takes value from on__change and adjusts value for functions
+        # call function based on passed value
+        self.slider_value = value
+        
+    def temp_mod_frame_2(self, value_2):
+        self.slider_value_2=value_2
+
+    def get_init_val(self,value_init):
+        self.slider_value=value_init
+        self.init_slider_val=value_init
+
+    def get_init_val_2(self,value_init_2):
+        self.slider_value_2=value_init_2
+        self.init_slider_val_2=value_init_2  
 
 class MainWindow(QDialog):
     def __init__(self):
@@ -549,9 +627,12 @@ class MainWindow(QDialog):
     
         # Set the window's main layout
 
-        self.thread = Threading(self)
-        self.thread.updateFrame.connect(self.displayFrame)
-        self.thread.updateProgressBar.connect(self.updateProgress)
+        self.thread= Processing_HUB()
+        self.thread.thread2 = Play_video(self)
+        self.thread.thread3 = Save_changes_2_xarray(self)
+        self.thread.thread4=Get_current_function(self)
+        self.thread.updateFrame.connect(lambda image: self.displayFrame(image))
+        self.thread.updateProgressBar.connect(lambda int: self.updateProgress(int))
 
 ## Initiating controls for MiniAM
     # Next
@@ -584,8 +665,8 @@ class MainWindow(QDialog):
             self.current_slider = QSlider(Qt.Horizontal, self)
             self.current_slider.valueChanged[int].connect(self.on_slider_change)
             self.current_slider.setMinimum(self.Min_slider[cur_index])
-            if self.Min_slider[cur_index]<10:
-                self.current_slider.setTickInterval(0.1)
+            #if self.Min_slider[cur_index]<10:
+                #self.current_slider.setTickInterval(0.1)
             self.current_slider.setMaximum(self.Max_slider[cur_index])
             self.current_slider.setValue(self.init_slider[cur_index])
             self.current_layo.addWidget(self.current_slider)
@@ -600,8 +681,8 @@ class MainWindow(QDialog):
             self.current_slider_2.valueChanged[int].connect(self.on_slider_change_2)
             self.current_slider_2.setMinimum(self.Min_slider_2[self.intern_indx])
             self.current_slider_2.setMaximum(self.Max_slider_2[self.intern_indx])
-            if self.Max_slider_2[self.intern_indx]<10:
-                self.current_slider_2.setTickInterval(10)
+            # if self.Max_slider_2[self.intern_indx]<10:
+                # self.current_slider_2.setTickInterval(10)
             self.current_slider_2.setValue(self.init_slider_2[self.intern_indx])
             self.current_layo.addWidget(self.current_slider_2)
             self.controlStack.addWidget(self.current_widget_2[self.intern_indx])
@@ -616,82 +697,97 @@ class MainWindow(QDialog):
 
 ### End of miniAM insert
 
-    @ Slot()
+    @ pyqtSlot()
     def update_button_index(self):
         button_indx=self.current_control
-        self.thread.update_button_indx(button_indx) 
+        if 0 <= button_indx < 15:
+            self.thread.update_button_indx(button_indx)
+            self.thread.thread4.update_button_indx(button_indx)
+        else:
+            print('Invalid function index:', button_indx)
+            # Handle the invalid index gracefully (e.g., set a default index)
+            default_index = 0
+            self.thread.update_button_indx(default_index)
+            self.thread.thread4.update_button_indx(default_index)
 
-    @Slot()
+    @pyqtSlot()
     def start_thread(self):
         self.thread.resume()
         self.thread.start()
         self.upload_button.setVisible(False)
 
-    @Slot(QImage)
-    def displayFrame(self, image):
-        self.label.setPixmap(QPixmap.fromImage(image))
 
-    @Slot()
+    @ pyqtSlot(QImage)
+    def displayFrame(self, Image):
+        self.label.setPixmap(QPixmap.fromImage(Image))
+
+    @ pyqtSlot()
     def stop_thread(self):
-        self.thread.stop()
+        self.thread.thread2.stop()
 
-    @ Slot()
+    @ pyqtSlot()
     def replay_thread(self):
         self.thread.restart_video()
 
-    @ Slot()
+    @ pyqtSlot()
     def open_file_dialog(self): 
         file_path, _ = QFileDialog.getOpenFileName(self, "Open Video", "", "Video Files (*.avi)")
+        print(file_path)
         if file_path:
             self.thread.set_file_path(file_path)
-            self.thread.start()
             self.upload_button.setVisible(False)
             self.checkBox.setVisible(True)
+            self.send_init_slider_val()  # Add this line to send initial slider values
+            self.thread.get_initial_video() 
 
-    @Slot()
+    @pyqtSlot()
     def save_xarray(self):
         save_path, _ = QFileDialog.getSaveFileName(self, 'Save Video', '', 'NetCDF files (*.nc)')
         if save_path:
             passed_data=self.thread.get_xarray()
             passed_data.to_netcdf(save_path)
 
-    @Slot()
+    @pyqtSlot()
     def save_changes(self):
         self.progress.setVisible(True)
-        self.thread.apply_mod_2_xarray()
+        self.thread.save_changes_2_xarray()
         self.update_button_index()
         self.progress.setVisible(False)
         self.next_btn.setVisible(True) 
         
 
-    @Slot()
+    @pyqtSlot()
     def on_slider_change(self):
             current_value = self.current_slider.value()
-            self.thread.temp_mod_frame(current_value)
+            self.thread.thread2.temp_mod_frame(current_value)
+            self.thread.thread4.temp_mod_frame(current_value)
             self.current_label.setText("{0}: {1}".format(self.slider_name[self.current_control], str(current_value))) 
-    @Slot()
+    @pyqtSlot()
     def on_slider_change_2(self):
             current_value_2=self.current_slider_2.value()
-            self.thread.temp_mod_frame_2(current_value_2)
+            self.thread.thread2.temp_mod_frame_2(current_value_2)
+            self.thread.thread4.temp_mod_frame_2(current_value_2)
             self.current_label_2.setText("{0}: {1}".format(self.slider_name_2[self.intern_indx], str(current_value_2)))  
     
-    @Slot()
+    @pyqtSlot()
     def send_init_slider_val(self):
-        self.thread.get_init_val(self.init_slider[self.current_control])
+        self.thread.thread2.get_init_val(self.init_slider[self.current_control])
+        self.thread.thread4.get_init_val(self.init_slider[self.current_control])
         if self.intern_indx is not None:
-            self.thread.get_init_val_2(self.init_slider_2[self.intern_indx])
+            self.thread.thread2.get_init_val_2(self.init_slider_2[self.intern_indx])
+            self.thread.thread4.get_init_val_2(self.init_slider_2[self.intern_indx])
 
-    @Slot(int)
+    @pyqtSlot(int)
     def updateProgress(self, progress_val):
         self.progress.setValue(progress_val)
 
-    @Slot()
+    @pyqtSlot()
     def countour_checkbox(self):
         if self.check_counter == 0:
-            self.thread.contour_check()
+            self.thread.thread2.contour_check()
             self.check_counter += 1
         else:
-            self.thread.contour_unchecked()
+            self.thread.thread2.contour_unchecked()
             self.check_counter = 0
 
 if __name__ == "__main__":

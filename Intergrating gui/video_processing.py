@@ -15,36 +15,14 @@ sys.setrecursionlimit(10**6)
 
 def get_optimal_chk(
     arr: xr.DataArray,
-    dim_grp=[("frame",), ("height", "width")],
+    dim_grp=[("frame",), ("height", "width", "channel")],  # Add "channel" to the second tuple
     csize=256,
     dtype: Optional[type] = None,
 ) -> dict:
     """
     Compute the optimal chunk size across all dimensions of the input array.
 
-    This function use `dask` autochunking mechanism to determine the optimal
-    chunk size of an array. The difference between this and directly using
-    "auto" as chunksize is that it understands which dimensions are usually
-    chunked together with the help of `dim_grp`. It also support computing
-    chunks for custom `dtype` and explicit requirement of chunk size.
-
-    Parameters
-    ----------
-    arr : xr.DataArray
-        The input array to estimate for chunk size.
-    dim_grp : list, optional
-        List of tuples specifying which dimensions are usually chunked together
-        during computation. For each tuple in the list, it is assumed that only
-        dimensions in the tuple will be chunked while all other dimensions in
-        the input `arr` will not be chunked. Each dimensions in the input `arr`
-        should appear once and only once across the list. By default
-        `[("frame",), ("height", "width")]`.
-    csize : int, optional
-        The desired space each chunk should occupy, specified in MB. By default
-        `256`.
-    dtype : type, optional
-        The datatype of `arr` during actual computation in case that will be
-        different from the current `arr.dtype`. By default `None`.
+    ... (rest of the docstring remains unchanged)
 
     Returns
     -------
@@ -111,7 +89,7 @@ def factors(x: int) -> List[int]:
     """
     return [i for i in range(1, x + 1) if x % i == 0]
 
-def remove_glow(varr):
+def remove_glow(varr, frame):
     """
     Removes the general glow background caused by the vignetting effect from a video.
 
@@ -127,15 +105,12 @@ def remove_glow(varr):
         raise ValueError("The input xarray must have 'frame' as one of its dimensions.")
 
     # Compute the minimum projection across all frames
-    varr_min = varr.min(dim='frame').compute()
-
+    varr_min = varr.min(dim='frame')
+    
     # Subtract the minimum projection from all frames
-    varr_ref = varr - varr_min
+    new_frame = frame - varr_min
 
-    return varr_ref
-
-
-
+    return new_frame
 
 def denoise(frame, method='gaussian', kernel_size=5):
     """
@@ -210,8 +185,8 @@ def estimate_motion(current_frame, previous_frame):
     }
 
     # Convert frames to grayscale
-    prev_gray = previous_frame
-    curr_gray = current_frame
+    prev_gray = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2GRAY)
+    curr_gray = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
 
     # Calculate optical flow
     flow = cv2.calcOpticalFlowFarneback(prev_gray, curr_gray, None, **flow_params)
@@ -240,7 +215,7 @@ def apply_transform(frame, motion_vector, border_mode=cv2.BORDER_REFLECT):
     # Apply the warp
     transformed_frame = cv2.remap(frame, coords, None, interpolation=cv2.INTER_LINEAR, borderMode=border_mode)
 
-    return transformed_frame
+    return transformed_frame  # Return the transformed frame
 
 
 def seeds_init(frame, threshold=100, min_distance=10):
@@ -258,7 +233,6 @@ def seeds_init(frame, threshold=100, min_distance=10):
     # Convert frame to grayscale if it's not already
     if len(frame.shape) == 3:
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
     # Apply threshold
     ret, thresh_frame = cv2.threshold(frame, threshold, 255, cv2.THRESH_BINARY)
 
